@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useBrain } from "./hooks/useBrain";
+import GraphView from "./components/GraphView";
 
 import StimulusNode from "./components/neurons/StimulusNode";
 import VisualNode from "./components/neurons/VisualNode";
@@ -33,19 +34,14 @@ export default function Home() {
 
       <StimulusNode fireSignal={fireSignal} setRaw={setRaw} />
 
-      <div className="grid grid-cols-2 gap-6 mt-10">
-        <VisualNode signals={signals} />
-        <AttentionNode signals={signals} />
-        <LoadNode signals={signals} />
-        <DecisionNode raw={raw} />
-      </div>
+<GraphView signals={signals} raw={raw} />
 
-      {raw && (
-        <img
-          src={`data:image/png;base64,${raw.heatmap}`}
-          className="mt-10"
-        />
-      )}
+{raw && (
+  <img
+    src={`data:image/png;base64,${raw.heatmap}`}
+    className="mt-10"
+  />
+)}
     </div>
   );
 }
