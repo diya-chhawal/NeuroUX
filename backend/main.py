@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import base64
 from io import BytesIO
 from PIL import Image
+import cv2
+import base64
 
 app = FastAPI()
 
@@ -19,22 +21,19 @@ app.add_middleware(
 # -------------------------
 # SUGGESTIONS ENGINE
 # -------------------------
-def generate_suggestions(att, vis, load):
-    s = []
+def interpret_signals(attention, visual, load):
+    suggestions = []
 
-    if load > 0.5:
-        s.append("Reduce clutter in UI")
+    if load > 0.6:
+        suggestions.append("Reduce clutter")
 
-    if vis < 0.4:
-        s.append("Improve visual hierarchy")
+    if attention < 0.4:
+        suggestions.append("Increase contrast")
 
-    if att < 0.5:
-        s.append("Improve layout structure")
+    if visual < 0.4:
+        suggestions.append("Improve brightness")
 
-    if not s:
-        s.append("Good design overall")
-
-    return s
+    return suggestions
 
 
 # -------------------------
@@ -42,30 +41,27 @@ def generate_suggestions(att, vis, load):
 # -------------------------
 
 
-def create_overlay_heatmap(file):
-    file.seek(0)
+def generate_heatmap(file_bytes):
+    # Convert bytes → numpy image
+    np_arr = np.frombuffer(file_bytes, np.uint8)
+    img = cv2.imdecode(np_arr, cv2.IMREAD_GRAYSCALE)
 
-    img = Image.open(file).convert("RGB")
-    img = img.resize((256, 256))
+    # Edge detection (attention)
+    edges = cv2.Canny(img, 100, 200)
 
-    gray = img.convert("L")
-    heat = np.array(gray)
+    # Convert to colored heatmap
+    heatmap = cv2.applyColorMap(edges, cv2.COLORMAP_JET)
 
-    heat = plt.cm.hot(heat / 255.0)[:, :, :3]  # color map
-    heat = (heat * 255).astype(np.uint8)
+    # Encode to base64
+    _, buffer = cv2.imencode(".png", heatmap)
+    heatmap_base64 = base64.b64encode(buffer).decode("utf-8")
 
-    overlay = (0.6 * np.array(img) + 0.4 * heat).astype(np.uint8)
-
-    plt.imshow(overlay)
-    plt.axis("off")
-
-    buf = BytesIO()
-    plt.savefig(buf, format="png")
-    buf.seek(0)
-
-    return base64.b64encode(buf.read()).decode()
+    return heatmap_base64
 
 
+
+def normalize(x):
+    return max(0, min(1, float(x)))
 # -------------------------
 # MAIN API
 # -------------------------
@@ -73,11 +69,27 @@ def create_overlay_heatmap(file):
 async def analyze(file: UploadFile = File(...)):
 
     # Simulated brain (replace later with TRIBE)
-    brain = np.random.rand(500)
+    file_bytes = await file.read()
 
-    att = float(brain.mean())
-    vis = float(brain[:100].mean())
-    load = float(brain.std())
+# PIL for signals
+    img = Image.open(BytesIO(file_bytes)).convert("L")
+    img_array = np.array(img)  
+
+    img_array=img_array/255.0
+
+    vis = np.mean(img_array)
+    edges = cv2.Canny((img_array * 255).astype(np.uint8), 100, 200)
+    att = np.sum(edges > 0) / edges.size
+    att = att * 9  # amplify signal
+    att = normalize(att)
+    load = np.std(edges / 255.0)
+    load = load * 2
+    load = normalize(load)
+
+    vis=normalize(vis)
+
+    ux_score=(0.5*att + 0.3*vis - 0.2*load)
+    ux_score=normalize(ux_score)
 
     return {
         "signals": {
@@ -86,8 +98,8 @@ async def analyze(file: UploadFile = File(...)):
             "load": load
         },
         "decision": {
-            "ux_score": float(0.5*att + 0.3*vis - 0.2*load),
-            "suggestions": generate_suggestions(att, vis, load)
+            "ux_score": ux_score,
+            "suggestions": interpret_signals(att, vis, load)
         },
-        "heatmap": create_overlay_heatmap(file.file)
+        "heatmap": generate_heatmap(file_bytes)
     }
